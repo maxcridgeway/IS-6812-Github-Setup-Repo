@@ -1,0 +1,459 @@
+---
+title: "Data_Mining_A7_Ridgeway_Max_Copy"
+author: "Max Christopher Ridgeway"
+date: "08/31/25"
+output: 
+  html_document: 
+    toc: true
+    number_sections: false
+---
+
+# Instructions
+
+## Objectives: Find similar customer shopping visits and mine association rules in Walmart baskets.
+
+## Input files:
+
+Walmart_visits_7trips.csv Download Walmart_visits_7trips.csvfor K-means clustering
+Walmart_baskets_1week.csv Download Walmart_baskets_1week.csvfor Association rule mining
+Data Source: Walmart and Kaggle
+
+Walmart held its 3rd Kaggle “recruiting” competition (https://www.kaggle.com/c/walmart-recruiting-trip-type-classification (Links to an external site.)Links to an external site.) in Fall 2015 to attract data scientists interested in getting jobs at Walmart.
+
+The raw data is a long market basket format of items purchased during each visit and some other item-related information and trip information (see Appendix A).
+
+For Walmart’s competition in Kaggle, data scientists compete on classifying shopping trip types based on the items that customers purchased. To give a few hypothetical examples of trip types: a customer may make a small daily dinner trip, a weekly large grocery trip, a trip to buy gifts for an upcoming holiday, or a trip to buy seasonal items. For classifying a customer visit’s trip_type, the raw data needs to be processed to aggregate items by VisitNumber and to extract meaningful and potentially effective predictors for TripType.  Besides being regarded as data preparation, this is also about feature (predictor) engineering.
+
+To explore trip data by finding similar customer shopping trips using clustering, Walmart_visits_7trips.csv Download Walmart_visits_7trips.csvwas created via such a feature engineering process to contain the following features:
+
+## Appendix A
+
+TripType - a categorical id representing the type of shopping trip the customer made. Trip type, 999, is an "other" category. Walmart_visits_7trips.csv contains a few of the original 38 trip types.
+
+DOW – Day of Week of the trip
+
+UniqueItems – the number of unique UPC numbers of the products purchased in a visit
+
+TotalQty - the total number of the items that were purchased in a visit
+
+TotalRtrnQty -  the total number of the items returned in a visit
+
+NetQty = total_purchase_quantity – total_return_quantity
+
+UniqueDepts – the number of unique departments representing the purchased items in a visit.
+
+OneItemDepts – the number of unique departments representing single-departmental-product purchases in a visit
+
+RtrnDepts – the number of unique departments representing the returned items in a visit.
+
+To practice Association Rule Mining, Walmart_baskets_1week.csv Download Walmart_baskets_1week.csv was derived from the original Kaggle data to represent shopping baskets also in the long format based on VisitNumber as transaction id and DepartmentDescription as a high-level indication of item type in a basket.
+
+## Packages required:
+
+Install C50, psych, RWeka, caret, rminer, matrixStats, knitr and arules packages.
+
+
+# Task I (94%)
+
+Create A7_LastName_FirstName.Rmd to meet the following requirements:
+
+
+## 1. Code chunk 1 - Load packages, prepare and inspect the data (17 points)
+
+### A. (7 points) Package loading, and Walmart_visits_7trips.csv, and transformation.
+
+Show the overall structure of the input file.
+Transform categorical data into factor variables, and show a summary of the input data file.
+
+```{r Setup and data import}
+# Load the following packages. Install them first if necessary.
+library(C50)
+library(psych)
+library(RWeka)
+library(caret)
+library(rminer)
+library(matrixStats)
+library(knitr)
+library(arules)
+library(arulesViz)
+
+# Have these ones as well just incase
+library(kernlab)
+library(psych)
+library(rpart)
+library(rpart.plot)
+library(rJava)
+library(tictoc) 
+library(tidyverse)
+library(dplyr)
+
+# import data
+current_wd <- getwd()
+setwd(current_wd)
+Walmart_visits_7trips <- read.csv(file = "Walmart_visits_7trips.csv", stringsAsFactors = FALSE)
+
+# Checking which of the variables are factors and overall structure of the dataset
+str(Walmart_visits_7trips)
+head(Walmart_visits_7trips)
+glimpse(Walmart_visits_7trips)
+```
+
+```{r Transforming Categorical Variables into Factors}
+# TripType Variable
+Walmart_visits_7trips <- Walmart_visits_7trips |> mutate(TripType = factor(TripType))
+is.factor(Walmart_visits_7trips$TripType)
+
+# DOW Variable
+Walmart_visits_7trips <- Walmart_visits_7trips |> mutate(DOW = factor(DOW))
+is.factor(Walmart_visits_7trips$DOW)
+```
+
+```{r Showing the summary of the dataset with the transformed variables}
+summary(Walmart_visits_7trips)
+```
+
+B. (3 points) Understand this data set using correlation analysis (pairs.panels from psych)
+```{r Using pairs.panels from psych for correlation analysis}
+pairs.panels(Walmart_visits_7trips)
+```
+
+C. (7 points) Build a descriptive C5.0 decision tree using the entire data set (TripType is the target variable). Prune the tree so that the number of tree leaves is smaller than 15 (use CF value to prune the tree). Plot the tree and show summary of the model to view tree rules and confusion matrix.
+
+```{r Partitioning the data frame for simple hold-out evaluation}
+# Using the same process from Assignment 3
+set.seed(100)
+
+inTrain <- createDataPartition(Walmart_visits_7trips$TripType, p = 0.70, list = FALSE)
+
+train_set <- Walmart_visits_7trips[inTrain,]
+test_set <- Walmart_visits_7trips[-inTrain,]
+
+summary(train_set)
+summary(test_set)
+```
+ 
+```{r Showing the distributions of the target variable in the whole input data frame, the train set, and the test set}
+# Original data set
+# First the count table
+Walmart_visits_7trips %>% 
+  pull(TripType) %>% 
+  table()
+
+# Next the proportion table
+Walmart_visits_7trips %>% 
+  pull(TripType) %>% 
+  table() %>%
+  prop.table() %>%
+  round(2)
+
+# Train set
+# First the count table
+train_set %>% 
+  pull(TripType) %>% 
+  table()
+
+# Next the proportion table
+train_set %>% 
+  pull(TripType) %>% 
+  table() %>%
+  prop.table() %>%
+  round(2)
+
+# Test set
+# First the count table
+test_set %>% 
+  pull(TripType) %>% 
+  table()
+
+# Next the proportion table
+test_set %>% 
+  pull(TripType) %>% 
+  table() %>%
+  prop.table() %>%
+  round(2)
+
+```
+
+```{r Training C5.0 model with default settings}
+# Creating decision tree with default settings, in this case we know CF is equal to 0.25 by default
+default_tree <- C5.0(TripType ~ . , train_set)
+
+# Checking the size of the tree
+default_tree$size
+```
+
+```{r Changing CF to be smaller to prune tree down to below 15 leaf nodes}
+# Default CF is .25 so using .17 instead
+refined_tree <- C5.0(TripType ~ . , train_set, control = C5.0Control(CF = .17, earlyStopping = FALSE, noGlobalPruning = TRUE))
+
+# Checking the size of the tree
+refined_tree$size
+```
+
+```{r Plotting the refined tree, fig.height=8, fig.width=20}
+plot(refined_tree)
+```
+
+```{r Showing the summary of the model to view tree rules and confusion matrix }
+summary(refined_tree)
+```
+
+## 2. Code chunk 2 - Use SimpleKMeans clustering  to understand visits (42 points)
+A.  Save the number of unique TripTypes from the imported data in a new variable named TripType.levels. After doing so, remove the  TripType column from input data. (recall we covered how to extract the count of unique factor levels way back in the beginning of the semester. Consider using the nlevels() function to do so.
+```{r Using nlevels to save the number of unique TripTypes}
+TripType.levels <- nlevels(Walmart_visits_7trips$TripType)
+TripType.levels
+```
+
+```{r Removing the TripType column from the input data}
+Walmart_visits_7trips <- Walmart_visits_7trips %>%
+  select(-TripType)
+
+head(Walmart_visits_7trips)
+```
+
+B. Generate clusters with the default (i.e. random) initial cluster assignment and the default distance function (Euclidean). The number of clusters equals to TripType.levels. Show the clustering information with the standard deviations and the centroids of the clusters.
+```{r Generating clusters using default (random) cluster assignment and default (Euclidean) distance functions}
+# SimpleKKmeans options
+# • -N <num> Number of clusters. (default 2).
+# • -init Initialization method to use. 0 = random, 1 = k-means++. (default = 0)
+# • -V Display std. deviations for centroids.
+# • -A <classname and options> Distance function to use. (default: "weka.core.EuclideanDistance")
+# SimpleKMeans automatically transforms categorical variables and standardizes numerical variables
+
+nClusters <- TripType.levels
+
+# SimpleKmeans with random initial cluster assignment
+walmart_kmeans <- SimpleKMeans(Walmart_visits_7trips, Weka_control(N = nClusters,
+                                                                   init = 0,
+                                                                   V = TRUE))
+walmart_kmeans
+```
+
+C. Keep the number of clusters at TripType.levels and the Euclidean distance function. Change the initial cluster assignment method to the Kmeans++ method. Cluster the visits again and show the standard deviations and the centroids of the clusters.
+```{r Generating clusters using Kmeans++ assignment method and default (Euclidean) distance functions}
+# SimpleKKmeans options
+# • -N <num> Number of clusters. (default 2).
+# • -init Initialization method to use. 0 = random, 1 = k-means++. (default = 0)
+# • -V Display std. deviations for centroids.
+# • -A <classname and options> Distance function to use. (default: "weka.core.EuclideanDistance")
+# SimpleKMeans automatically transforms categorical variables and standardizes numerical variables
+
+nClusters <- TripType.levels
+
+# SimpleKmeans with random initial cluster assignment
+walmart_kmeans <- SimpleKMeans(Walmart_visits_7trips, Weka_control(N = nClusters,
+                                                                   init = 1, 
+                                                                   V = TRUE))
+walmart_kmeans
+```
+
+D. Keep the number of clusters at TripType.levels and the initial cluster assignment method to be the Kmeans++ method. Change the distance function to "weka.core.ManhattanDistance". Cluster the visits again and show the standard deviations and the centroids of the clusters.
+```{r Generating clusters using Kmeans++ assignment method and Manhattan distance functions}
+# SimpleKKmeans options
+# • -N <num> Number of clusters. (default 2).
+# • -init Initialization method to use. 0 = random, 1 = k-means++. (default = 0)
+# • -V Display std. deviations for centroids.
+# • -A <classname and options> Distance function to use. (default: "weka.core.EuclideanDistance")
+# SimpleKMeans automatically transforms categorical variables and standardizes numerical variables
+
+nClusters <- TripType.levels
+
+# SimpleKmeans with random initial cluster assignment
+walmart_kmeans <- SimpleKMeans(Walmart_visits_7trips, Weka_control(N = nClusters, 
+                                                                   init = 1,
+                                                                   A = "weka.core.ManhattanDistance", 
+                                                                   V = TRUE))
+walmart_kmeans
+```
+
+E. Choose your own distance function and initial cluster assignment method, increase or decrease the number of clusters. Cluster the visits again and show the standard deviations and the centroids of the clusters.
+```{r Generating clusters using random assignment method and Manhattan distance function, and decreasing the number of clusters to two}
+# SimpleKKmeans options
+# • -N <num> Number of clusters. (default 2).
+# • -init Initialization method to use. 0 = random, 1 = k-means++. (default = 0)
+# • -V Display std. deviations for centroids.
+# • -A <classname and options> Distance function to use. (default: "weka.core.EuclideanDistance")
+# "weka.core.ChebyshevDistance"	aims to maximize coordinate difference (L∞ norm)
+# SimpleKMeans automatically transforms categorical variables and standardizes numerical variables
+
+nClusters <- 2
+
+# SimpleKmeans with random initial cluster assignment
+walmart_kmeans <- SimpleKMeans(Walmart_visits_7trips, Weka_control(N = nClusters, 
+                                                                   init = 0,
+                                                                   A = "weka.core.ManhattanDistance", 
+                                                                   V = TRUE))
+walmart_kmeans
+```
+
+## 3. Code Chunk 3 - Market Basket Analysis with the Walmart dept baskets (35 points).
+A. (7 points) Import Walmart_baskets_1week.csv using the following read.transactions() with the “single” format (for long format) and save it in a sparse matrix called, e.g., Dept_baskets.
+```{r Reading in Walmart_baskets_1week using read.transactions method}
+Dept_baskets <- read.transactions("Walmart_baskets_1week.csv", format="single", sep = ",", header = TRUE, cols=c("VisitNumber","DepartmentDescription"))
+
+Dept_baskets
+```
+
+```{r computing total cells}
+Dept_baskets@data@Dim[1]
+Dept_baskets@data@Dim[2]
+
+# 66 column * 2000 rows. (a row is a transaction)
+
+Dept_baskets@data@Dim[1] * Dept_baskets@data@Dim[2]
+
+# 132000 cells
+
+```
+This is a Sparse Matrix. Most of the data is empty. This saves memory.
+
+What proportion is Sparse?
+```{r non-sparse proportion (density)}
+Dept_baskets_summary <- summary(Dept_baskets)
+Dept_baskets_summary@density
+# the sparse matrix is only 5.07803% non-zero.
+```
+
+```{r non-sparse cell count}
+Dept_baskets_summary@density * Dept_baskets@data@Dim[1] * Dept_baskets@data@Dim[2]
+
+# total items 6703 are 
+```
+
+B. (3 points) Inspect the first 15 transactions.
+```{r Inspecting the first 15 transactions}
+inspect(Dept_baskets[0:15])
+```
+
+C. (5 points) Use the itemFrequencyPlot command to plot the most frequent 15 items in the descending order of transaction frequency in percentage.
+```{r set sizes by count}
+Dept_baskets_summary@lengths
+barplot(Dept_baskets_summary@lengths, main="transaction counts by size")
+```
+
+```{r transaction counts for items}
+sort(itemFrequency(Dept_baskets, type = "absolute"), decreasing = TRUE)
+```
+
+Plot the top 15 items by relative frequency (proportion of transactions with the item.)
+```{r relative frequency plot. top 15.}
+itemFrequencyPlot(Dept_baskets, topN = 15, type='relative')
+```
+
+Plot the top 15 items by absolute frequency (number of transactions with the item.)
+```{r absolute frequency plot. top 15.}
+itemFrequencyPlot(Dept_baskets, topN = 15, type='absolute')
+```
+
+D. (20 points) Associate rule mining 
+
+```{r Apriori using default values}
+
+# Default values for the apriori method:
+# confidence = 0.8
+# support = 0.1
+# minlen = 1
+
+rules <- apriori(Dept_baskets)
+rules
+```
+
+0 rules created with the defaults so I am going to pull in the interactive dashboard
+
+```{r Rule Explorer - Shiny Dashboard}
+# Note you must go into the console and accept the request to install additional packages for this to work. It will wait for you to enter "1" and press enter.
+
+# ruleExplorer(Dept_baskets)
+```
+
+i. Use the apriori command to generate about 50 to 100 association rules from the input data. Set your own minimum support and confidence threshold levels. Remember if the thresholds are too low, you will generate more rules than desired, or if you set them too high, you may not generate any or a sufficient number of rules. Show the rules in the descending order of their lift values.
+```{r Association rules between 50 and 100}
+rules <- apriori(Dept_baskets, parameter = list(support = 0.055, confidence = 0.185, minlen = 2))
+rules
+```
+
+Landed on a set of 60 rules
+
+
+```{r 60 Rules set summary}
+summary(rules)
+```
+The max support in our dataset is 0.13050
+The max confidence is 0.8615
+The max lift is 4.558
+
+```{r inspect 20 of the 60 rules}
+inspect(rules[0:20])
+```
+
+```{r sort the 60 rules by lift and inspect 20 of them.}
+inspect(sort(rules, by = "lift")[1:20])
+```
+
+```{r Using InspectDT to create an interactable datatable for the 60 rules}
+inspectDT(sort(rules, by = "lift"))
+```
+
+```{r Interactive matrix plot for 60 rules}
+plot(rules, method = "matrix", engine = "html") 
+```
+
+```{r Interactive Graph plot for 60 rules}
+plot(rules, method = "graph", engine = "html")
+```
+
+ii. Similar to the last task, use the apriori command now to generate about 100 - 200 association rules from the input data. Set your own minimum support and confidence threshold levels. Show the rules in the descending order of their lift values.
+```{r Association rules between 100 and 200}
+rules <- apriori(Dept_baskets, parameter = list(support = 0.04, confidence = 0.125, minlen = 2))
+rules
+```
+
+Landed on a set of 156 rules
+
+```{r 156 Rules set summary}
+summary(rules)
+```
+The max support in our dataset is 0.13050
+The max confidence is 0.9327
+The max lift is 5.471
+
+```{r inspect 20 of the 156 rules}
+inspect(rules[0:20])
+```
+
+```{r sort 156 rules by lift and inspect 20 of them.}
+inspect(sort(rules, by = "lift")[1:20])
+```
+
+```{r Using InspectDT to create an interactable datatable for the 156 rules}
+inspectDT(sort(rules, by = "lift"))
+```
+
+```{r Interactive matrix plot for 156 rules}
+plot(rules, method = "matrix", engine = "html") 
+```
+
+```{r Interactive Graph plot for 156 rules}
+plot(rules, method = "graph", engine = "html")
+```
+
+For each chunk:
+
+Add some simple descriptive text in the text area before the code chunk.
+Add a name or description of each code chunk in {r}. Be sure that you allow code and output from executing code to be included in the file from rendering A7_LastName_FirstName.Rmd.
+Feel free to add comment lines with the requirement item numbers (e.g., # 3.A or # 3.B) to your code cell to help TAs and instructors easily identify your code that addresses a particular requirement.
+
+# Task II Reflections (6%):
+
+## 1. What were the minimum support level and the minimum confidence level you selected for the Association Rule Mining tasks? Given these levels, What is the rule with the highest lift given your final choices of these levels? What is the rule with the highest support level? What is the rule with the highest confidence level? Which rule out of these three (or fewer) do you recommend for sales executives to consider? What is the reason for your recommendation?
+
+The minimum support level and minimum confidence level I selected for the association rule mining tasks came from my second set of rules that produced 156 rules. The support level was 0.04 and the confidence level was 0.125.The rule with the highest lift given the final choice of these levels was {DAIRY, DSD GROCERY, PRODUCE}	=>	{COMM BREAD}	which resulted in a lift of 5.471125.The rules with the highest support levels is tied. {GROCERY DRY GOODS} => {DSD GROCERY} and {DSD GROCERY} => {GROCERY DRY GOODS} which both have a support level of 0.1305. The rule with the highest confidence level is {COMM BREAD, DAIRY, DSD GROCERY} => {GROCERY DRY GOODS} which has a confidence level of 0.9326923. Out of the three rules I would recommend recommed using the rule of {COMM BREAD, DAIRY, DSD GROCERY} => {GROCERY DRY GOODS} which has a confidence level of 0.9326923. The reason behind this decision is to prioritize confidence since it gives the predictive strength of a rule that if someone bys X how likely they are to purchase Y. Thus prioritizing this rule should be useful for implementing a strong predictive rule. I am assuming in this scenario they want the best of both worlds between support and lift, however which rules to use would depend on the true scenario at hand.
+
+## 2. What have you learned from building each of these models and the modeling impact of your adjustments to the hyperparameters or dataset? What can you say about the clusters that were formed? Is there anything interesting to point out? Recall clustering is often used to discover latent (hidden) information. What have you discovered? Make sure to discuss the association rule mining results as well. 
+
+I would say the most important thing I learned is very similar to my conclusions about regression models. That is that each of these methods regarding k means clustering and association rule mining have many parameters that changing can greatly affect the outcome and not always in a positive way. A great example of this is how the total within cluster sum of squares value for our k means cluster results kept increasing as changes were made. The first model had WSS equal to 3983.3256867784276, the second model had WSS equal to 4012.5108332500567, the third model had WSS equal to 6719.908977218368, and the final model had WSS equal to 12410.061111965604. All of these models were tweaked slightly to use different and arguably more complex assignment methods and distance functions (besides the final model). Despite this, the overall performance of the models could not be topped by the first version of the clusters. While association rule mining results don't point to a similar outcome in this situation, that could be out of chance. Changing the minimum thresholds for support and confidence do not always guarantee better results for the model. Overall, my main takeaway from the task of building the different models is this. Building the models are easy, honing them in to maximize performance as it pertains to the context of the business problem we are trying to solve is very hard.
+
+## 3. If you were explaining the results of these models to a supervisor what would you say about them? Attempt to do more than just state facts here, interpret the results. Coding is great, interpretation of output is even more important. Discuss each model.  Write at least 150 words.
+
+To start I would focus in on the k means cluster method that gave us the best results in terms of WSS. I would then go through the clusters and start to pick out some underlying trends and patterns that the centroids and standard deviations might be pointing to. For example cluster 6 which represents Fridays as the day of the week has a high amount of unique items, net quantity, and unique departments. This could point to the fact that Friday might be the day people are shopping to stock up on everything they've run out of thoughout the week. After discerning more general trends from the clusters I would then pair these findings with rules created from association rule mining with high confidence and lift to find items that imply the purchase of other items. We could use this combined information to create business operation solutions such as creating sales/promotion events and changing the layout of the store to encourage more associated spending. 
