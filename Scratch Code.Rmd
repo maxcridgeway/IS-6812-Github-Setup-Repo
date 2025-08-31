@@ -1,0 +1,26 @@
+---
+title: "Scratch Code"
+author: "Max Christopher Ridgeway"
+date: "08/31/25"
+output: 
+  html_document: 
+    toc: true
+    number_sections: false
+---
+
+### Testing Print
+```{r}
+print("hello world")
+```
+
+### Storing a variable
+```{r}
+a <- 2 + 2
+a
+```
+
+### Updating that variable
+```{r}
+a <- a + a
+a
+```
